@@ -9,6 +9,8 @@
 #include <gsl/gsl_sf_exp.h>
 #include <gsl/gsl_linalg.h>
 
+typedef unsigned long int lu_int;
+
 double Potential(double x)
 {
 	double mu = 0.5;
@@ -31,42 +33,62 @@ void print_matrix(const gsl_matrix_complex * m, size_t n)
 	}
 }
 
+double psi2(gsl_vector_complex *psi, double dx)
+{
+	double sum = 0;
+
+	for(lu_int i = 0; i < psi->size; i++)
+	{
+		sum += gsl_complex_abs2(gsl_vector_complex_get(psi, i)) * dx;
+	}
+
+	return sum;
+}
+
 int main(int argc, char* argv[])
 {		
-	typedef unsigned long int lu_int;
+
+	//x will vary from 0 to lx
+	double lx = 1.;
+
+	//t will vary from 0 to t_tot
+	double t_tot = 1.; 
 	
-	double lx = 1.; //x will vary from 0 to lx
-	double t_tot = 1.; //t will vary from 0 to t_tot
-	
-	lu_int N_POINTS;
+	lu_int N_x;
 	lu_int N_t;
 
 	if(argc > 2)
 	{
-		N_POINTS = atoi(argv[1]);
-		N_t		 = atoi(argv[2]);
+		N_x = atoi(argv[1]);
+		N_t = atoi(argv[2]);
 	}
 	else
 	{
-		N_POINTS = 100;
-		N_t		 = 100;
+		N_x = 100;
+		N_t = 100;
 	}
 	
-	//lu_int n = N_POINTS+2;
+	//lu_int n = N_x+2;
 	
-	gsl_vector *x 			= gsl_vector_calloc(N_POINTS);
-	gsl_vector *potential 	= gsl_vector_calloc(N_POINTS);
-	gsl_vector_complex *psi_n = gsl_vector_complex_calloc(N_POINTS);
-	gsl_vector_complex *psi_np1 = gsl_vector_complex_calloc(N_POINTS);
+	//x grid to initialize potential
+	gsl_vector *x 			= gsl_vector_calloc(N_x);
+
+	//potential V to be calculated on the grid	
+	gsl_vector *potential 	= gsl_vector_calloc(N_x);
+
+	//wavefunction at step n and n+1
+	gsl_vector_complex *psi_n = gsl_vector_complex_calloc(N_x);
+	gsl_vector_complex *psi_np1 = gsl_vector_complex_calloc(N_x);
 	
-	gsl_matrix_complex *lhs_coeffs = gsl_matrix_complex_calloc(N_POINTS, N_POINTS);
-	gsl_matrix_complex *rhs_coeffs = gsl_matrix_complex_calloc(N_POINTS, N_POINTS);
+	//coefficients of the matrix to be inverted to find the 
+	gsl_matrix_complex *lhs_coeffs = gsl_matrix_complex_calloc(N_x, N_x);
+	gsl_matrix_complex *rhs_coeffs = gsl_matrix_complex_calloc(N_x, N_x);
 
 	double dt = t_tot/N_t;
-	double dx = lx/N_POINTS;
+	double dx = lx/N_x;
 	double a = dt/(2.*dx*dx);
 
-	for (lu_int i = 0; i < N_POINTS; ++i)
+	for (lu_int i = 0; i < N_x; ++i)
 	{
 		gsl_vector_set(x, i, i*dx);
 		gsl_vector_set(potential, i, Potential(i * dx));
@@ -76,7 +98,7 @@ int main(int argc, char* argv[])
 		gsl_matrix_complex_set(lhs_coeffs, i, i, gsl_complex_rect(1., 2. * a + 0.5 * dt * gsl_vector_get(potential, i)));
 		gsl_matrix_complex_set(rhs_coeffs, i, i, gsl_complex_rect(0., -2. * a - 0.5 * dt * gsl_vector_get(potential, i)));
 		
-		if(i < N_POINTS-1)
+		if(i < N_x-1)
 		{
 			gsl_matrix_complex_set(lhs_coeffs, i, i+1, gsl_complex_rect(0., -a));
 			gsl_matrix_complex_set(lhs_coeffs, i+1, i, gsl_complex_rect(0., -a));
@@ -85,26 +107,7 @@ int main(int argc, char* argv[])
 		}
 	}
 
-	gsl_vector_complex_scale(psi_n, gsl_complex_rect(1./gsl_blas_dznrm2(psi_n), 0.));
-
-/*
-	std::cout<<"finished setup"<<std::endl;
-
-	for(int i = 1; i < 10; ++i)
-	{	
-		for(int j = 1; j < 10; ++j)
-		{
-			gsl_complex z = gsl_matrix_complex_get(coeff_matrix, i, j);
-			printf("%+5.2f %+5.2f*i\t", GSL_REAL(z), GSL_IMAG(z));
-		}
-		
-		std::cout<<std::endl;
-	}
-*/
-	//lu_int N_t = t_tot/dt;
-	//lu_int N_print = 10;
-	
-	gsl_permutation *p = gsl_permutation_alloc(N_POINTS);
+	gsl_permutation *p = gsl_permutation_alloc(N_x);
 	int sign = 0;
 
 	//print_matrix(lhs_coeffs, 5);
@@ -114,7 +117,7 @@ int main(int argc, char* argv[])
 
 	gsl_complex alpha = gsl_complex_rect(1., 0.);
 	gsl_complex beta  = gsl_complex_rect(0., 0.);
-	gsl_vector_complex *y = gsl_vector_complex_calloc(N_POINTS);
+	gsl_vector_complex *y = gsl_vector_complex_calloc(N_x);
 
 	//print_matrix(lhs_coeffs, 5);
 	
@@ -123,8 +126,12 @@ int main(int argc, char* argv[])
 
 	for (lu_int i=0; i < N_t; ++i)
 	{
+		
+		//normalize psi at every step to ensure consistent normalization
+		gsl_vector_complex_scale(psi_n, gsl_complex_rect(1./sqrt(psi2(psi_n, dx)), 0.));
+		
 		file<<i*dt<<", ";
-		for (lu_int j = 0; j < N_POINTS; ++j)
+		for (lu_int j = 0; j < N_x; ++j)
 		{
 			file<<gsl_complex_abs2(gsl_vector_complex_get(psi_n, j))<<", ";
 		}
@@ -135,6 +142,8 @@ int main(int argc, char* argv[])
 		gsl_linalg_complex_LU_solve(lhs_coeffs, p, psi_n, psi_np1);
 
 		gsl_vector_complex_swap(psi_n, psi_np1);
+
+
 	}
 	file.close();
 	
