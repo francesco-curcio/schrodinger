@@ -1,5 +1,4 @@
 #include <iostream>
-#include <vector>
 #include <fstream>
 #include <gsl/gsl_math.h>
 #include <gsl/gsl_vector.h>
