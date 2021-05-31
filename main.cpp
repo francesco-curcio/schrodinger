@@ -12,10 +12,19 @@ typedef unsigned long int lu_int;
 
 double Potential(double x)
 {
-	double mu = 0.5;
-	double norm = 1./(sqrt(M_PI * 2.));
+	double mu = 7.5;
+	double V_min = 1.;
+	double V_max = 1.;
+	double x_star = mu - sqrt(2. * V_min);
+	double width = 1.;
+	
+	if(x > x_star)
+		return 0.5 * gsl_pow_2(x - mu) - V_min;
+	else if(x > x_star - width)
+		return V_max;
+	else 
+		return 0.;
 
-	return -norm * gsl_sf_exp(gsl_pow_2(x - mu));
 }
 
 void print_matrix(const gsl_matrix_complex * m, size_t n)
@@ -48,10 +57,10 @@ int main(int argc, char* argv[])
 {		
 
 	//x will vary from 0 to lx
-	double lx = 1.;
+	double lx = 10.;
 
 	//t will vary from 0 to t_tot
-	double t_tot = 1.; 
+	double t_tot = 100.; 
 	
 	lu_int N_x;
 	lu_int N_t;
@@ -77,7 +86,7 @@ int main(int argc, char* argv[])
 
 	//wavefunction at step n and n+1
 	gsl_vector_complex *psi_n = gsl_vector_complex_calloc(N_x);
-	gsl_vector_complex *psi_np1 = gsl_vector_complex_calloc(N_x);
+	gsl_vector_complex *psi_np1 = gsl_vector_complex_alloc(N_x);
 	
 	//coefficients of the matrix to be inverted to find the 
 	gsl_matrix_complex *lhs_coeffs = gsl_matrix_complex_calloc(N_x, N_x);
@@ -91,8 +100,7 @@ int main(int argc, char* argv[])
 	{
 		gsl_vector_set(x, i, i*dx);
 		gsl_vector_set(potential, i, Potential(i * dx));
-		gsl_vector_complex_set(psi_n, i, gsl_complex_rect(1., 0));
-		gsl_vector_complex_set(psi_np1, i, gsl_complex_rect(1., 0));
+		gsl_vector_complex_set(psi_n, i, gsl_complex_rect(gsl_sf_exp(-gsl_pow_2(i*dx - 1.)), 0));
 		
 		gsl_matrix_complex_set(lhs_coeffs, i, i, gsl_complex_rect(1., 2. * a + 0.5 * dt * gsl_vector_get(potential, i)));
 		gsl_matrix_complex_set(rhs_coeffs, i, i, gsl_complex_rect(0., -2. * a - 0.5 * dt * gsl_vector_get(potential, i)));
@@ -142,7 +150,13 @@ int main(int argc, char* argv[])
 
 		gsl_vector_complex_swap(psi_n, psi_np1);
 
+	}
+	file.close();
 
+	file.open("pot.dat");
+	for (lu_int i = 0; i < N_x; ++i)
+	{
+		file<<i*dx<<", "<< gsl_vector_get(potential, i)<<"\n";
 	}
 	file.close();
 	
